@@ -1,0 +1,7 @@
+"AttackCapabilityModifiers"
+{
+	"modifier_troll_warlord_berserkers_rage"	"1"
+	"modifier_lone_druid_true_form"				"1"
+	"modifier_terrorblade_metamorphosis"		"1"
+	"modifier_dragon_knight_dragon_form"		"1"
+}

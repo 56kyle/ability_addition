@@ -1,0 +1,11 @@
+"Totems"
+{
+	"1"		"npc_dota_totem_wheel_of_time"
+	"2"		"npc_dota_totem_knight_vow"
+	"3"		"npc_dota_totem_globetrotter"
+	"4"		"npc_dota_totem_upgrader"
+	"5"		"npc_dota_totem_guardian_shell"
+	"6"		"npc_dota_totem_voodoo"
+	"7"		"npc_dota_totem_degenerator"
+	"8"		"npc_dota_totem_nether"
+}

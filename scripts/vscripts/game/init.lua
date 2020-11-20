@@ -8,6 +8,7 @@ else
     print("Hey this is actually the server")
 end
 
+require("game/ability")
 require("game/basenpc")
 require("game/chat")
 require("game/console")

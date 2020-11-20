@@ -64,10 +64,6 @@ function Console:Init()
             end
         end
     end
-
-    print("Initializing Generated Commands")
-    self:Generate()
-    print("Holy shit it didn't crash maybe")
 end
 
 function Console:AddAbility()

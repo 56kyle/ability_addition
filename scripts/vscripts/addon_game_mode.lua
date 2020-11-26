@@ -2,6 +2,7 @@
 _G.GameMode = GameMode or {}
 
 require("utils/init")
+require("libraries/keyvalues")
 require("game/init")
 
 function Precache( context )
@@ -24,7 +25,8 @@ function GameMode:InitGameMode()
 	local game_mode_entity = GameRules:GetGameModeEntity()
 	game_mode_entity.GameMode = self
 	game_mode_entity.GameMode.version="3.2"
-	GameRules:SetCustomGameSetupAutoLaunchDelay(3.0)
+	GameRules:SetCustomGameSetupAutoLaunchDelay(1.0)
+	GameRules:SetPreGameTime(1.0)
     self.teams = {}
 	Console:Init()
 	game_mode_entity:SetAnnouncerDisabled(true)

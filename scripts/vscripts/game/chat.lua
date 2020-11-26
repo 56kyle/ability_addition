@@ -26,6 +26,28 @@ ListenToGameEvent("player_chat", function(keys)
         hero:AddAbility(ability_name)
     end
 
+    if command == "force_add" then
+        if keywords[1] then
+            CDOTA_BaseNPC.AddAbility(hero, keywords[1])
+        end
+    end
+
+    if command == "show_kv" then
+        if keywords[1] then
+            _DeepPrintTable(GetAbilityKV(keywords[1]))
+        end
+    end
+
+    if command == "show_global" then
+        if _G[keywords[1] or ""] then
+            if type (_G[keywords[1]]) == "table" then
+                _DeepPrintTable(_G[keywords[1]])
+            else
+                print(_G[keywords[1]])
+            end
+        end
+    end
+
     if command == "remove_ability" or command == "ra" then
         if keywords[1] and hero.abilities[keywords[1]] then
             hero:RemoveAbility(keywords[1])
@@ -33,7 +55,8 @@ ListenToGameEvent("player_chat", function(keys)
             if keywords[1] then
                 print("Can't remove ability")
             else
-                hero:RemoveAbilityByHandle(table.random_with_condition(hero.abilities, function(ability) return ability end))
+                local random_ability = table.random_with_condition(hero.abilities, function(t, k, ability) return ability:IsMainAbility() end)
+                hero:RemoveAbilityByHandle(random_ability, nil)
             end
         end
     end
@@ -42,6 +65,10 @@ ListenToGameEvent("player_chat", function(keys)
         for _, a_hero in pairs(HeroList:GetAllHeroes()) do
             print(a_hero:GetUnitName())
         end
+    end
+
+    if command == "aghs" then
+        hero:AddItemByName("item_ultimate_scepter")
     end
 
     if command == "trade_for" or command == "tf" then
@@ -64,6 +91,7 @@ ListenToGameEvent("player_chat", function(keys)
     if command == "al" then
         _G.last_ability:SetLevel(tonumber(keywords[1]))
     end
+
     if command == "la" then
         for i, ability in pairs(hero:GetAbilities()) do
             print(tostring(i).." - "..ability:GetAbilityName())
@@ -80,6 +108,13 @@ ListenToGameEvent("player_chat", function(keys)
             end
         end
     end
+
+    if command == "describe" or command == "des" then
+        if keywords[1] and hero.abilities[keywords[1]] then
+            _DeepPrintTable(hero.abilities[keywords[1]])
+        end
+    end
+
     if command == "setlvl" then
         hero:SetLevel(tonumber(keywords[1]))
     end

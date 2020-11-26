@@ -9,7 +9,7 @@ CDOTA_BaseNPC_Hero.Config = {
 function CDOTA_BaseNPC_Hero:Init()
     print("CDOTA_BaseNPC_Hero:Init()")
     self.abilities = {}
-    self.should_have_scepter = false
+    self.should_have_scepter = self:HasScepter()
 
     -- Removes all generic_hidden since we can't have repeat keys in self.abilities
     for _, ability in pairs(self:GetAbilities()) do
@@ -22,8 +22,8 @@ function CDOTA_BaseNPC_Hero:Init()
         CDOTA_BaseNPC.RemoveAbilityByHandle(self, ability)
     end
 
-    CDOTA_BaseNPC.AddAbility(self, "generic_hidden"):SetAbilityIndex(1)
-    CDOTA_BaseNPC.AddAbility(self, "generic_hidden"):SetAbilityIndex(2)
+    CDOTA_BaseNPC.AddAbility(self, "generic_hidden"):SetAbilityIndex(4)
+    CDOTA_BaseNPC.AddAbility(self, "generic_hidden"):SetAbilityIndex(5)
 end
 
 function CDOTA_BaseNPC_Hero:AddAbility(ability_name, parent_ability_name, ignore_children)
@@ -33,7 +33,7 @@ function CDOTA_BaseNPC_Hero:AddAbility(ability_name, parent_ability_name, ignore
 
     local main_abilities_count = 0
     for _, ability in pairs(self.abilities) do
-        if ability and ability:IsMainAbility() then
+        if ability and ability:IsMainAbility() and not ability:IsPrecaching() then
             main_abilities_count = main_abilities_count + 1
         end
     end
@@ -46,7 +46,6 @@ function CDOTA_BaseNPC_Hero:RelearnAbilityFor(original_ability_name, new_ability
     if not original_ability_name or not new_ability_name then return print("\tMissing param") end
     if not self.abilities[original_ability_name] then return print("\tOriginal ability not owned") end
     self.abilities[new_ability_name] = self.abilities[original_ability_name]
-    self.abilities[original_ability_name] = nil
     return self:AddAbility(new_ability_name)
 end
 
@@ -56,7 +55,6 @@ function CDOTA_BaseNPC_Hero:RelearnAbilityAtIndexFor(original_ability_index, new
     local original_ability_name = self:GetAbilityByIndex().name or self:GetAbilityByIndex():GetAbilityName()
     if not self.abilities[original_ability_name] then return print("\tOriginal ability not owned") end
     self.abilities[new_ability_name] = self.abilities[original_ability_name]
-    self.abilities[original_ability_name] = nil
     return self:AddAbility(new_ability_name)
 end
 
@@ -96,8 +94,8 @@ function CDOTA_BaseNPC_Hero:RemoveAbilityByHandle(ability, ignore_children)
 
     local intrinsic_modifier = ""
     if self.abilities[ability.name or ability:GetAbilityName()] then
-        self.abilities[ability.name or ability:GetAbilityName()]:_BeforeRemoval(ignore_children)
         intrinsic_modifier = self.abilities[ability.name or ability:GetAbilityName()]:GetIntrinsicModifierName()
+        self.abilities[ability.name or ability:GetAbilityName()]:_BeforeRemoval(ignore_children)
     else
         return print("Can't remove ability")
     end
@@ -106,10 +104,11 @@ function CDOTA_BaseNPC_Hero:RemoveAbilityByHandle(ability, ignore_children)
     if self:HasModifier(intrinsic_modifier) then
         self:RemoveModifierByName(intrinsic_modifier)
     end
+    self:RefreshAbilities()
 end
 
 -- All ability initialization is handled between CDOTA_BaseNPC_Hero:Precache() and CDOTABaseAbility:Init()
-function CDOTA_BaseNPC_Hero:Precache(ability_name, parent_ability_name, ignore_children)
+function CDOTA_BaseNPC_Hero:Precache(ability_name, parent_ability_name, ignore_children, ability_name_to_remove)
     print("CDOTA_BaseNPC_Hero:Precache()")
     local placeholder = CDOTA_BaseNPC.AddAbility(self, "generic_hidden")
     if not placeholder then return print("generic ability could not be added") end
@@ -118,8 +117,17 @@ function CDOTA_BaseNPC_Hero:Precache(ability_name, parent_ability_name, ignore_c
         print("DOTA_BaseNPC_Hero - Precache finished")
         print("\tNow adding ability using ability_name = ", ability_name)
         local new_ability = CDOTA_BaseNPC.AddAbility(self, ability_name)
-        new_ability:Init(nil, parent_ability_name, ignore_children)
+        if new_ability then
+            new_ability:Init(nil, parent_ability_name, ignore_children)
+            if ability_name_to_remove and self.abilities[ability_name_to_remove] then
+                self:RemoveAbilityByHandle(self.abilities[ability_name_to_remove])
+            end
+        else
+            CDOTA_BaseNPC.RemoveAbilityByHandle(self.abilities[ability_name])
+            self.abilities[ability_name] = nil
+        end
     end)
+    return placeholder
 end
 
 function CDOTA_BaseNPC_Hero:TradeAbilities(own_ability, other_ability)
@@ -155,9 +163,13 @@ end
 function CDOTA_BaseNPC_Hero:OnScepterGained()
     print("CDOTA_BaseNPC_Hero:OnScepterGained")
     self.should_have_scepter = true
+    local scepter_ability_names_added = {}
     for _, ability in pairs(self.abilities) do
         for _, scepter_ability_name in pairs(ability.scepter_ability_name_list) do
-            self:AddAbility(scepter_ability_name, ability.name)
+            if not table.contains(scepter_ability_names_added, scepter_ability_name) then
+                self:AddAbility(scepter_ability_name, ability)
+                table.insert(scepter_ability_names_added, scepter_ability_name)
+            end
         end
     end
 end
@@ -166,9 +178,7 @@ function CDOTA_BaseNPC_Hero:OnScepterLost()
     print("CDOTA_BaseNPC_Hero:OnScepterLost")
     self.should_have_scepter = false
     for _, ability in pairs(self.abilities) do
-        for _, scepter_ability_name in pairs(ability.scepter_ability_name_list) do
-            self:RemoveAbility(scepter_ability_name)
-        end
+        ability:_RemoveScepterChildren()
     end
 end
 

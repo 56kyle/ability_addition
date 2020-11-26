@@ -49,35 +49,35 @@ end
 
 function IsAbility(ability_name)
     print("IsAbility(", ability_name, ")")
-    return ClassifyAbility(ability_name).is_ability
+    return GetAbilityKV(ability_name) and true
 end
 
 function ClassifyAbility(ability_name)
     local info = {}
     info.is_main_ability = table.contains(_G.all_ability_names, ability_name)
     info.is_linked_ability = (_G.linked_abilities_levels[ability_name] and true)
-    info.is_pre_ability = IsAbilityDraftPreAbility(ability_name)
-    info.is_ult_scepter_ability = IsAbilityDraftUltScepterAbility(ability_name)
-    info.is_ult_scepter_pre_ability = IsAbilityDraftUltScepterPreAbility(ability_name)
+    info.is_pre_ability = HasAbilityDraftPreAbility(ability_name)
+    info.is_ult_scepter_ability = HasAbilityDraftUltScepterAbility(ability_name)
+    info.is_ult_scepter_pre_ability = HasAbilityDraftUltScepterPreAbility(ability_name)
     info.is_scepter_ability = info.is_pre_ability or info.is_ult_scepter_ability or info.is_ult_scepter_pre_ability
     info.is_hidden_at_start = info.is_pre_ability or info.is_ult_scepter_pre_ability
     info.is_ability = false
     for _, val in pairs(info) do
-        info.is_ability = info.is_ability or val
+        info.is_ability = info.is_ability or (val and true)
     end
     return info
 end
 
-function IsAbilityDraftPreAbility(ability_name)
-    return (_G.npc_abilities_override[ability_name] and _G.npc_abilities_override[ability_name]["AbilityDraftPreAbility"]) or (_G.npc_abilities_custom[ability_name] and _G.npc_abilities_custom[ability_name]["AbilityDraftPreAbility"])
+function HasAbilityDraftPreAbility(ability_name)
+    return GetAbilityKV(ability_name, "AbilityDraftPreAbility")
 end
 
-function IsAbilityDraftUltScepterAbility(ability_name)
-    return (_G.npc_abilities_override[ability_name] and _G.npc_abilities_override[ability_name]["AbilityDraftUltScepterAbility"]) or (_G.npc_abilities_custom[ability_name] and _G.npc_abilities_custom[ability_name]["AbilityDraftUltScepterAbility"])
+function HasAbilityDraftUltScepterAbility(ability_name)
+    return GetAbilityKV(ability_name, "AbilityDraftUltScepterAbility")
 end
 
-function IsAbilityDraftUltScepterPreAbility(ability_name)
-    return (_G.npc_abilities_override[ability_name] and _G.npc_abilities_override[ability_name]["AbilityDraftUltScepterPreAbility"]) or (_G.npc_abilities_custom[ability_name] and _G.npc_abilities_custom[ability_name]["AbilityDraftUltScepterPreAbility"])
+function HasAbilityDraftUltScepterPreAbility(ability_name)
+    return GetAbilityKV(ability_name, "AbilityDraftUltScepterPreAbility")
 end
 
 function CDOTABaseAbility:Init(desired_name, parent_ability_name, ignore_children)
@@ -103,23 +103,6 @@ function CDOTABaseAbility:Init(desired_name, parent_ability_name, ignore_childre
     end
 end
 
-function CDOTABaseAbility:Activate()
-    print("CDOTABaseAbility:Activate()")
-    if self.active then return print("\tAlready activated") end
-    self:SetHidden(self:HasBehavior(DOTA_ABILITY_BEHAVIOR_HIDDEN))
-    self:SetActivated(true)
-    self.active = true
-end
-
-function CDOTABaseAbility:Deactivate()
-    print("CDOTABaseAbility:Deactivate()")
-    if self.active then return print("\tAlready deactivated") end
-    self:SetHidden(true)
-    self:SetActivated(false)
-    self:Refund()
-    self.active = false
-end
-
 function CDOTABaseAbility:_InitGenericAbility(desired_name, ignore_children)
     self.caster.abilities[desired_name] = self
     if _G.linked_abilities[desired_name] and not ignore_children then
@@ -131,15 +114,19 @@ function CDOTABaseAbility:_InitGenericAbility(desired_name, ignore_children)
         end
     end
     self.scepter_ability_name_list = {
-        _G.npc_abilities_override[self.name] and _G.npc_abilities_override[self.name]["AbilityDraftUltScepterAbility"],
-        _G.npc_abilities_override[self.name] and _G.npc_abilities_override[self.name]["AbilityDraftPreAbility"],
-        _G.npc_abilities_override[self.name] and _G.npc_abilities_override[self.name]["AbilityDraftUltScepterPreAbility"]
+        HasAbilityDraftUltScepterAbility(self.name),
+        HasAbilityDraftPreAbility(self.name),
+        HasAbilityDraftUltScepterPreAbility(self.name)
     }
     print("\tAdding scepter_abilities if scepter present")
     if self.caster.should_have_scepter then
         for _, scepter_ability_name in pairs(self.scepter_ability_name_list) do
-            print("\t\tAdding scepter_ability_name - ", scepter_ability_name)
-            self.caster:AddAbility(scepter_ability_name, self.name)
+            if not self.caster.abilities[scepter_ability_name] then
+                print("\t\tAdding scepter_ability_name - ", scepter_ability_name)
+                self.caster:AddAbility(scepter_ability_name, self.name)
+            else
+                print("\t\tNot adding scepter_ability_name since it is already obtained - ", scepter_ability_name)
+            end
         end
     end
 end
@@ -152,7 +139,7 @@ function CDOTABaseAbility:_ReplaceGenericAbility(desired_name)
     self.caster.abilities[desired_name]:FromSummary(summary)
     if self.caster.abilities[desired_name].parent_ability_name then
         self.caster.abilities[desired_name]:SetLevel(_G.linked_abilities_levels[self.caster.abilities[desired_name].name] or self.caster.abilities[desired_name]:GetLevel())
-        self.caster.abilities[desired_name]:SetHidden(self.caster.abilities[desired_name]:HasBehavior(DOTA_ABILITY_BEHAVIOR_HIDDEN))
+        self.caster.abilities[desired_name]:SetHidden(self.caster.abilities[desired_name]:HasBehavior(DOTA_ABILITY_BEHAVIOR_HIDDEN) and not HasAbilityDraftPreAbility(desired_name) and not HasAbilityDraftUltScepterPreAbility(desired_name))
     end
     self.caster:RefreshAbilities()
 end
@@ -169,8 +156,21 @@ function CDOTABaseAbility:IsInnate()
     return false
 end
 
+function CDOTABaseAbility:IsMainAbility()
+    print("CDOTABaseAbility:IsMainAbility()")
+    return not self.parent_ability_name
+end
+
 function CDOTABaseAbility:IsLinkedAbility()
+    print("CDOTABaseAbility:IsLinkedAbility()")
     return self.parent_ability_name and true
+end
+
+function CDOTABaseAbility:IsScepterAbility()
+    print("CDOTABaseAbility:IsScepterAbility()")
+    if not self.parent_ability_name or not self.caster or not self.caster.abilities or not self.caster.abilities[self.parent_ability_name] then return false end
+    if not self.caster.abilities[parent_ability_name].scepter_ability_name_list then return false end
+    return table.contains(self.caster.abilities[parent_ability_name].scepter_ability_name_list, self.name)
 end
 
 function CDOTABaseAbility:ToSummary()
@@ -190,9 +190,9 @@ function CDOTABaseAbility:ToSummary()
         summary.parent_ability_name = self.parent_ability_name
         summary.child_ability_name_list = self.child_ability_name_list
         summary.scepter_ability_name_list = self.scepter_ability_name_list
-        summary.ancestor = self.ancestor
-    else
-        summary.ancestor = self.name
+        if GetAbilityKV(self.name, "MaxLevel") == 1 and GetAbilityKV(self.name, "IsGrantedByScepter") == 1 then
+            summary.level = 1
+        end
     end
     return summary
 end
@@ -205,25 +205,17 @@ function CDOTABaseAbility:FromSummary(summary)
         print("\t\t", k, " - ", v)
     end
     self:SetAbilityIndex(summary.index)
-    self:SetHidden(summary.hidden)
+    self:SetHidden(summary.hidden or (self:HasBehavior(DOTA_ABILITY_BEHAVIOR_HIDDEN) and not s))
     self:SetStealable(summary.stealable)
     self:SetStolen(summary.stolen)
     self:SetActivated(summary.activated)
     self.parent_ability_name = summary.parent_ability_name or self.parent_ability_name
     self.child_ability_name_list = summary.child_ability_name_list or self.child_ability_name_list
     self.scepter_ability_name_list = summary.scepter_ability_name_list or self.scepter_ability_name_list
-    self.ancestor = summary.ancestor or self.ancestor
-
-    if not self.caster or not self.caster.IsHero or not self.caster:IsHero() then return end
-    -- Random options for what is maintained from the previous ability.
-    if CDOTA_BaseNPC_Hero.Config.maintain_cooldown_for_learned_ability then
-        self:StartCooldown(summary.cooldown)
-    end
-
-    if CDOTA_BaseNPC_Hero.Config.auto_fill_learned_ability_level then
-        self:SetLevel(summary.level)
-    else
-        self.caster:SetAbilityPoints(self.caster:GetAbilityPoints() + summary.level)
+    if self.parent_ability_name and self.caster.abilities[self.parent_ability_name] and self.caster.abilities[self.parent_ability_name].scepter_ability_name_list then
+        if table.contains(self.caster.abilities[self.parent_ability_name].scepter_ability_name_list, self.name) then
+            self:SetLevel(summary.level or 0)
+        end
     end
 end
 
@@ -236,24 +228,68 @@ function CDOTABaseAbility:IsPrecaching()
     return self:GetAbilityName() == "generic_hidden"
 end
 
-function CDOTABaseAbility:IsMainAbility()
-    return not self.parent_ability_name
-end
-
 function CDOTABaseAbility:_BeforeRemoval(ignore_children)
-    print("CDOTABaseAbility:_BeforeRemoval() - Real ability name - "..self:GetAbilityName())
+    print("CDOTABaseAbility:_BeforeRemoval() - Real ability name - ", self:GetAbilityName())
     if self:IsPrecaching() then return print("\tDoing nothing because this is precaching finishing") end
-    self:Deactivate()
+    self:SetHidden(true)
+    if self:IsMainAbility() then
+        self:Refund()
+    end
     if not ignore_children then
-        for _, child_ability_name in pairs(self.child_ability_name_list) do
-            print("\tRemoving child ability - ", child_ability_name)
-            self.caster:RemoveAbility(self.caster.abilities[child_ability_name]:GetAbilityName())
-        end
+        _DeepPrintTable(self)
+        self:_RemoveChildren()
+        self:_RemoveScepterChildren()
+    else
+        print("\t---- Ignoring Children! ----")
     end
     self.caster.abilities[self.name] = nil
 end
 
+function CDOTABaseAbility:_RemoveChildren()
+    for _, child_ability_name in pairs(self.child_ability_name_list) do
+        print("\tRemoving child ability - ", child_ability_name)
+        print("\t", _, " - ", child_ability_name)
+        local keep_child = false
+        for other_ability_name, ability in pairs(self.caster.abilities) do
+            if ability ~= self then
+                keep_child = table.contains(ability.child_ability_name_list, child_ability_name) or keep_child
+            end
+        end
+        if not keep_child then
+            if not _G.unremovable_abilities[child_ability_name] then
+                self.caster:RemoveAbilityByHandle(self.caster.abilities[child_ability_name])
+            else
+                self.caster.abilities[child_ability_name]:SetHidden(true)
+                CDOTA_BaseNPC.RemoveAbilityByHandle(self.caster.abilities[child_ability_name])
+            end
+        end
+    end
+end
+
+function CDOTABaseAbility:_RemoveScepterChildren()
+    for _, scepter_ability_name in pairs(self.scepter_ability_name_list) do
+        print("\tRemoving scepter ability - ", scepter_ability_name)
+        print("\t", _, " - ", scepter_ability_name)
+        local keep_child = false
+        for other_ability_name, ability in pairs(self.caster.abilities) do
+            if ability ~= self then
+                keep_child = table.contains(ability.scepter_ability_name_list, scepter_ability_name) or keep_child
+            end
+        end
+        if not keep_child then
+            if not _G.unremovable_abilities[scepter_ability_name] then
+                self.caster:RemoveAbilityByHandle(self.caster.abilities[scepter_ability_name])
+            else
+                self.caster.abilities[scepter_ability_name]:SetHidden(true)
+                CDOTA_BaseNPC.RemoveAbilityByHandle(self.caster, self.caster.abilities[scepter_ability_name])
+                self.caster.abilities[scepter_ability_name] = nil
+            end
+        end
+    end
+end
+
 function CDOTABaseAbility:HasBehavior(behavior)
-	return tonumber(tostring(self:GetBehaviorInt())) == behavior
+	local abilityBehavior = tonumber(tostring(self:GetBehaviorInt()))
+	return bit.band(abilityBehavior, behavior) == behavior
 end
 

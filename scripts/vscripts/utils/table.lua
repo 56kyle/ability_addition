@@ -45,6 +45,13 @@ function table.shallowcopy(orig)
     return copy
 end
 
+function table.merge(input1, input2)
+	for i,v in pairs(input2) do
+		input1[i] = v
+	end
+	return input1
+end
+
 function table.deepcopy(orig)
     local orig_type = type(orig)
     local copy

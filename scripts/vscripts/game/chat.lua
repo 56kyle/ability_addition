@@ -84,6 +84,17 @@ ListenToGameEvent("player_chat", function(keys)
         hero:SwapAbilities(ability_one, ability_two, true, true)
     end
 
+    if command == "re_all" then
+        local conditions = {size = 6}
+        local new_abilities = hero:GetPoolOfRandomAbilityNames(conditions)
+        _DeepPrintTable(new_abilities)
+        for ability_name, _ in pairs(hero:GetMainAbilities()) do
+            local new_name = table.random(new_abilities)
+            hero:RelearnAbilityFor(ability_name, new_name)
+            table.remove_item(new_abilities, new_name)
+        end
+    end
+
     if command == "refresh_ab" then
         hero:RefreshAbilities()
     end
@@ -99,8 +110,17 @@ ListenToGameEvent("player_chat", function(keys)
         for ability_name, ability in pairs(hero.abilities) do
             print(ability_name, " - ")
             if type(ability) == "table" then
-                for k, v in pairs(ability) do
-                    print("\t", k, " - ", v)
+                for k, v in pairs(ability:ToSummary()) do
+                    print("\t", k, " - ")
+                    if type(v) == "table" then
+                        for key, val in pairs(v) do
+                            print("\t\t", key, " - ", val)
+                        end
+                    elseif v then
+                        print("\t\t", v)
+                    else
+                        print("\t\tValue is nil")
+                    end
                 end
             else
                 print("\tAbility is not table - ")

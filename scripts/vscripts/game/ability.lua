@@ -1,5 +1,12 @@
-CDOTABaseAbility = CDOTABaseAbility or class({})
+-------- Table Of Contents
+--- Line 52 - Ability Initialization
+--- Line 119 - Ability Summarization
+--- Line 171 - Ability Removal Callbacks
+--- Line 233 - Random Utility
+--- Line 253 - Ability Classifiers
+--- Line 283 - Global Ability Classifiers
 
+CDOTABaseAbility = CDOTABaseAbility or class({})
 
 _G.ability_exclusion = LoadKeyValues("scripts/kv/excluded_ability_combinations.kv")
 _G.ability_personal = LoadKeyValues("scripts/kv/ability_types/personal.kv")
@@ -9,7 +16,6 @@ _G.disabled_abilities = LoadKeyValues("scripts/kv/ability_types/disabled.kv")
 _G.innate_abilities = LoadKeyValues("scripts/kv/innate_abilities.kv")
 _G.npc_abilities_override = LoadKeyValues("scripts/npc/npc_abilities_override.txt")
 _G.npc_abilities_custom = LoadKeyValues("scripts/npc/npc_abilities_custom.txt")
-
 
 if not _G.all_ability_names then
     _G.all_ability_names = {}
@@ -47,39 +53,7 @@ if not _G.all_ability_names then
     end
 end
 
-function IsAbility(ability_name)
-    print("IsAbility(", ability_name, ")")
-    return GetAbilityKV(ability_name) and true
-end
-
-function ClassifyAbility(ability_name)
-    local info = {}
-    info.is_main_ability = table.contains(_G.all_ability_names, ability_name)
-    info.is_linked_ability = (_G.linked_abilities_levels[ability_name] and true)
-    info.is_pre_ability = HasAbilityDraftPreAbility(ability_name)
-    info.is_ult_scepter_ability = HasAbilityDraftUltScepterAbility(ability_name)
-    info.is_ult_scepter_pre_ability = HasAbilityDraftUltScepterPreAbility(ability_name)
-    info.is_scepter_ability = info.is_pre_ability or info.is_ult_scepter_ability or info.is_ult_scepter_pre_ability
-    info.is_hidden_at_start = info.is_pre_ability or info.is_ult_scepter_pre_ability
-    info.is_ability = false
-    for _, val in pairs(info) do
-        info.is_ability = info.is_ability or (val and true)
-    end
-    return info
-end
-
-function HasAbilityDraftPreAbility(ability_name)
-    return GetAbilityKV(ability_name, "AbilityDraftPreAbility")
-end
-
-function HasAbilityDraftUltScepterAbility(ability_name)
-    return GetAbilityKV(ability_name, "AbilityDraftUltScepterAbility")
-end
-
-function HasAbilityDraftUltScepterPreAbility(ability_name)
-    return GetAbilityKV(ability_name, "AbilityDraftUltScepterPreAbility")
-end
-
+-------- Ability Initialization
 function CDOTABaseAbility:Init(desired_name, parent_ability_name, ignore_children)
     print("CDOTABaseAbility:Init(desired_name = ", tostring(desired_name), ", parent_ability_name = ", tostring(parent_ability_name), ")")
     self.caster = self:GetCaster()
@@ -97,14 +71,19 @@ function CDOTABaseAbility:Init(desired_name, parent_ability_name, ignore_childre
 
     -- Inherits properties of previous ability based on config values, or just assigns itself
     if self.caster.abilities[desired_name] then
-        self:_ReplaceGenericAbility(desired_name)
+        if self.caster.abilities[desired_name]:GetAbilityName() ~= "generic_hidden" then
+            self:_InitAbilityDependents(desired_name, ignore_children)
+        end
+        self:_ReplaceAbility(desired_name)
     else
-        self:_InitGenericAbility(desired_name, ignore_children)
+        self.caster.abilities[desired_name] = self
+        self.caster.pending_abilities[desired_name] = self.name
+        self:_InitAbilityDependents(desired_name, ignore_children)
     end
 end
 
-function CDOTABaseAbility:_InitGenericAbility(desired_name, ignore_children)
-    self.caster.abilities[desired_name] = self
+function CDOTABaseAbility:_InitAbilityDependents(desired_name, ignore_children)
+    print("CDOTABaseAbility:InitAbilityDependents()")
     if _G.linked_abilities[desired_name] and not ignore_children then
         for _, linked_ability_name in pairs(_G.linked_abilities[desired_name]) do
             table.insert(self.child_ability_name_list, linked_ability_name)
@@ -131,48 +110,22 @@ function CDOTABaseAbility:_InitGenericAbility(desired_name, ignore_children)
     end
 end
 
-function CDOTABaseAbility:_ReplaceGenericAbility(desired_name)
+function CDOTABaseAbility:_ReplaceAbility(desired_name)
+    print("CDOTABaseAbility:_ReplaceAbility()")
+    -- Used for both replacing generic_hidden and normal abilities
     local summary = self.caster.abilities[desired_name]:ToSummary()
     self.caster:UnHideAbilityToSlot(self:GetAbilityName(), self.caster.abilities[desired_name]:GetAbilityName())
     self.caster:RemoveAbilityByHandle(self.caster.abilities[desired_name])
     self.caster.abilities[desired_name] = self
     self.caster.abilities[desired_name]:FromSummary(summary)
-    if self.caster.abilities[desired_name].parent_ability_name then
-        self.caster.abilities[desired_name]:SetLevel(_G.linked_abilities_levels[self.caster.abilities[desired_name].name] or self.caster.abilities[desired_name]:GetLevel())
-        self.caster.abilities[desired_name]:SetHidden(self.caster.abilities[desired_name]:HasBehavior(DOTA_ABILITY_BEHAVIOR_HIDDEN) and not HasAbilityDraftPreAbility(desired_name) and not HasAbilityDraftUltScepterPreAbility(desired_name))
-    end
     self.caster:RefreshAbilities()
 end
+--------
 
-function CDOTABaseAbility:Refund()
-    print("CDOTABaseAbility:Refund()")
-    if not self.caster or not self.caster.IsHero or not self.caster:IsHero() then return print("\tCaster is not a hero") end
-    self.caster:SetAbilityPoints(self.caster:GetAbilityPoints() + self:GetLevel())
-    self:SetLevel(0)
-end
-
-function CDOTABaseAbility:IsInnate()
-    print("CDOTABaseAbility:IsInnate()")
-    return false
-end
-
-function CDOTABaseAbility:IsMainAbility()
-    print("CDOTABaseAbility:IsMainAbility()")
-    return not self.parent_ability_name
-end
-
-function CDOTABaseAbility:IsLinkedAbility()
-    print("CDOTABaseAbility:IsLinkedAbility()")
-    return self.parent_ability_name and true
-end
-
-function CDOTABaseAbility:IsScepterAbility()
-    print("CDOTABaseAbility:IsScepterAbility()")
-    if not self.parent_ability_name or not self.caster or not self.caster.abilities or not self.caster.abilities[self.parent_ability_name] then return false end
-    if not self.caster.abilities[parent_ability_name].scepter_ability_name_list then return false end
-    return table.contains(self.caster.abilities[parent_ability_name].scepter_ability_name_list, self.name)
-end
-
+-------- Ability Summarization - One of the more important parts here.
+--- Allows for returning a placeholder ability in CDOTA_BaseNPC_Hero:AddAbility() that will
+--- have it's attributes passed to the new ability when precaching is finished,
+--- or to the old ability if the ability somehow fails to precache.
 function CDOTABaseAbility:ToSummary()
     print("CDOTABaseAbility:ToSummary() - Taken from real name - "..self:GetAbilityName())
     local summary = {}
@@ -205,29 +158,43 @@ function CDOTABaseAbility:FromSummary(summary)
         print("\t\t", k, " - ", v)
     end
     self:SetAbilityIndex(summary.index)
-    self:SetHidden(summary.hidden or (self:HasBehavior(DOTA_ABILITY_BEHAVIOR_HIDDEN) and not s))
+    if self:HasBehavior(DOTA_ABILITY_BEHAVIOR_HIDDEN) then
+        if GetAbilityKV(self.name).IsGrantedByScepter then
+            self:SetHidden(not self.caster.should_have_scepter)
+            print("\tself.caster.should_have_scepter = ", self.caster.should_have_scepter)
+            if self.caster.should_have_scepter then
+                print("\tSet scepter ability to not hidden")
+            else
+                print("\tSet scepter ability to hidden")
+            end
+        else
+            print("\tSet hidden")
+            self:SetHidden(true)
+        end
+    else
+        print("\tSetting hidden to - ", summary.hidden)
+        self:SetHidden(summary.hidden)
+    end
     self:SetStealable(summary.stealable)
     self:SetStolen(summary.stolen)
     self:SetActivated(summary.activated)
     self.parent_ability_name = summary.parent_ability_name or self.parent_ability_name
     self.child_ability_name_list = summary.child_ability_name_list or self.child_ability_name_list
     self.scepter_ability_name_list = summary.scepter_ability_name_list or self.scepter_ability_name_list
-    if self.parent_ability_name and self.caster.abilities[self.parent_ability_name] and self.caster.abilities[self.parent_ability_name].scepter_ability_name_list then
-        if table.contains(self.caster.abilities[self.parent_ability_name].scepter_ability_name_list, self.name) then
+    if self:IsScepterAbility() then
+        print("\tIs a scepter ability")
+        if self.caster:HasScepter() then
+            print("\tSetting level to - 1")
+            self:SetLevel(1)
+        else
+            print("\tSetting level to - ", summary.level or 0)
             self:SetLevel(summary.level or 0)
         end
     end
 end
+--------
 
-function CDOTABaseAbility:Refresh()
-    -- Just a less awful name for this method
-    self:MarkAbilityButtonDirty()
-end
-
-function CDOTABaseAbility:IsPrecaching()
-    return self:GetAbilityName() == "generic_hidden"
-end
-
+-------- Ability Removal Callbacks
 function CDOTABaseAbility:_BeforeRemoval(ignore_children)
     print("CDOTABaseAbility:_BeforeRemoval() - Real ability name - ", self:GetAbilityName())
     if self:IsPrecaching() then return print("\tDoing nothing because this is precaching finishing") end
@@ -236,7 +203,7 @@ function CDOTABaseAbility:_BeforeRemoval(ignore_children)
         self:Refund()
     end
     if not ignore_children then
-        _DeepPrintTable(self)
+        print("\tRemoving children")
         self:_RemoveChildren()
         self:_RemoveScepterChildren()
     else
@@ -246,6 +213,7 @@ function CDOTABaseAbility:_BeforeRemoval(ignore_children)
 end
 
 function CDOTABaseAbility:_RemoveChildren()
+    print("CDOTABaseAbility:_RemoveChildren()")
     for _, child_ability_name in pairs(self.child_ability_name_list) do
         print("\tRemoving child ability - ", child_ability_name)
         print("\t", _, " - ", child_ability_name)
@@ -267,6 +235,7 @@ function CDOTABaseAbility:_RemoveChildren()
 end
 
 function CDOTABaseAbility:_RemoveScepterChildren()
+    print("CDOTABaseAbility:_RemoveScepterChildren()")
     for _, scepter_ability_name in pairs(self.scepter_ability_name_list) do
         print("\tRemoving scepter ability - ", scepter_ability_name)
         print("\t", _, " - ", scepter_ability_name)
@@ -288,8 +257,84 @@ function CDOTABaseAbility:_RemoveScepterChildren()
     end
 end
 
+-------- Random Utility
+function CDOTABaseAbility:Refund()
+    print("CDOTABaseAbility:Refund()")
+    if not self.caster or not self.caster.IsHero or not self.caster:IsHero() then return print("\tCaster is not a hero") end
+    self.caster:SetAbilityPoints(self.caster:GetAbilityPoints() + self:GetLevel())
+    self:SetLevel(0)
+end
+
+function CDOTABaseAbility:Refresh()
+    -- Just a less awful name for this method
+    self:MarkAbilityButtonDirty()
+end
+
 function CDOTABaseAbility:HasBehavior(behavior)
 	local abilityBehavior = tonumber(tostring(self:GetBehaviorInt()))
 	return bit.band(abilityBehavior, behavior) == behavior
 end
+--------
+
+-------- Ability Classifiers
+function CDOTABaseAbility:IsInnate()
+    print("CDOTABaseAbility:IsInnate()")
+    return table.contains(_G.innate_abilities, self.name)
+end
+
+function CDOTABaseAbility:IsMainAbility()
+    print("CDOTABaseAbility:IsMainAbility()")
+    return not self.parent_ability_name and not self.cosmetic
+end
+
+function CDOTABaseAbility:IsLinkedAbility()
+    print("CDOTABaseAbility:IsLinkedAbility()")
+    return self.parent_ability_name and true
+end
+
+function CDOTABaseAbility:IsScepterAbility()
+    print("CDOTABaseAbility:IsScepterAbility()")
+    return GetAbilityKV(self.name).IsGrantedByScepter == 1
+end
+
+function CDOTABaseAbility:IsPrecaching()
+    print("CDOTABaseAbility:IsPrecaching()")
+    return self:GetAbilityName() == "generic_hidden"
+end
+--------
+
+-------- Global Ability Classifiers
+function IsAbility(ability_name)
+    print("IsAbility(", ability_name, ")")
+    return GetAbilityKV(ability_name) and true
+end
+
+function ClassifyAbility(ability_name)
+    local info = {}
+    info.is_main_ability = table.contains(_G.all_ability_names, ability_name)
+    info.is_linked_ability = (_G.linked_abilities_levels[ability_name] and true)
+    info.is_pre_ability = HasAbilityDraftPreAbility(ability_name)
+    info.is_ult_scepter_ability = HasAbilityDraftUltScepterAbility(ability_name)
+    info.is_ult_scepter_pre_ability = HasAbilityDraftUltScepterPreAbility(ability_name)
+    info.is_scepter_ability = info.is_pre_ability or info.is_ult_scepter_ability or info.is_ult_scepter_pre_ability
+    info.is_hidden_at_start = info.is_pre_ability or info.is_ult_scepter_pre_ability
+    info.is_ability = false
+    for _, val in pairs(info) do
+        info.is_ability = info.is_ability or (val and true)
+    end
+    return info
+end
+
+function HasAbilityDraftPreAbility(ability_name)
+    return GetAbilityKV(ability_name, "AbilityDraftPreAbility")
+end
+
+function HasAbilityDraftUltScepterAbility(ability_name)
+    return GetAbilityKV(ability_name, "AbilityDraftUltScepterAbility")
+end
+
+function HasAbilityDraftUltScepterPreAbility(ability_name)
+    return GetAbilityKV(ability_name, "AbilityDraftUltScepterPreAbility")
+end
+--------
 

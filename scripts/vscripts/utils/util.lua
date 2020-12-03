@@ -67,3 +67,7 @@ function table.DeepPrint(self, tab_count, history)
 	end
 end
 
+function string.starts_with(str, start)
+   return str:sub(1, #start) == start
+end
+

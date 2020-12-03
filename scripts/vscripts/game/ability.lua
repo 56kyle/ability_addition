@@ -5,6 +5,7 @@
 --- Line 233 - Random Utility
 --- Line 253 - Ability Classifiers
 --- Line 283 - Global Ability Classifiers
+--- Line TBD - Compatibility Callbacks
 
 CDOTABaseAbility = CDOTABaseAbility or class({})
 
@@ -53,11 +54,28 @@ if not _G.all_ability_names then
     end
 end
 
+CDOTABaseAbility.Config = {
+    compatibility_callbacks = {
+        -- event_name = callback function
+        -- Ex: OnInit = CDOTABaseAbility.Refresh
+    }
+}
+
 -------- Ability Initialization
 function CDOTABaseAbility:Init(desired_name, parent_ability_name, ignore_children)
     print("CDOTABaseAbility:Init(desired_name = ", tostring(desired_name), ", parent_ability_name = ", tostring(parent_ability_name), ")")
+    -- Compatibility Callback Logic
+    local params = {desired_name = desired_name, parent_ability_name = parent_ability_name, ignore_children = ignore_children}
+    local callback_info = self:CheckForCallback("BeforeInit", params)
+    if not callback_info then return self:CheckForCallback("AfterInit", params) end
+    if type(callback_info) ~= "table" then return end
+    desired_name = callback_info.desired_name
+    parent_ability_name = callback_info.parent_ability_name
+    ignore_children = callback_info.ignore_children
+    --
+
     self.caster = self:GetCaster()
-    if not self.caster or not self.caster.IsHero or not self.caster:IsHero() then return print("\tself.caster is not valid") end
+    if not self.caster or not self.caster.IsHero or not self.caster:IsHero() then return self:CheckForCallback("AfterInit", print("\tself.caster is not valid")) end
     -- If this isn't owned by a hero, then leave it be
 
     desired_name = desired_name or self:GetAbilityName()
@@ -80,10 +98,20 @@ function CDOTABaseAbility:Init(desired_name, parent_ability_name, ignore_childre
         self.caster.pending_abilities[desired_name] = self.name
         self:_InitAbilityDependents(desired_name, ignore_children)
     end
+    return self:CheckForCallback("AfterInit")
 end
 
 function CDOTABaseAbility:_InitAbilityDependents(desired_name, ignore_children)
     print("CDOTABaseAbility:InitAbilityDependents()")
+    -- Compatibility Callback Logic
+    local params = {desired_name = desired_name, ignore_children = ignore_children}
+    local callback_info = self:CheckForCallback("Before_InitAbilityDependents", params)
+    if not callback_info then return self:CheckForCallback("After_InitAbilityDependents", params) end
+    if type(callback_info) ~= "table" then return end
+    desired_name = callback_info.desired_name
+    ignore_children = callback_info.ignore_children
+    --
+
     if _G.linked_abilities[desired_name] and not ignore_children then
         for _, linked_ability_name in pairs(_G.linked_abilities[desired_name]) do
             table.insert(self.child_ability_name_list, linked_ability_name)
@@ -108,6 +136,7 @@ function CDOTABaseAbility:_InitAbilityDependents(desired_name, ignore_children)
             end
         end
     end
+    return self:CheckForCallback("After_InitAbilityDependents")
 end
 
 function CDOTABaseAbility:_ReplaceAbility(desired_name)
@@ -128,6 +157,7 @@ end
 --- or to the old ability if the ability somehow fails to precache.
 function CDOTABaseAbility:ToSummary()
     print("CDOTABaseAbility:ToSummary() - Taken from real name - "..self:GetAbilityName())
+    if not self:CheckForCallback("BeforeToSummary") then return self:CheckForCallback("AfterToSummary", print("CDOTABaseAbility:ToSummary canceled by ")) end
     local summary = {}
     summary.index = self:GetAbilityIndex()
     if summary.index < 2 then
@@ -147,12 +177,20 @@ function CDOTABaseAbility:ToSummary()
             summary.level = 1
         end
     end
-    return summary
+    return self:CheckForCallback("AfterToSummary", summary)
 end
 
 function CDOTABaseAbility:FromSummary(summary)
     print("CDOTABaseAbility:FromSummary() - Applied to real name - "..self:GetAbilityName())
-    if not summary then return print("\tno summary given") end
+    -- Compatibility Callback Logic
+    local params = {summary = summary}
+    local callback_info = self:CheckForCallback("BeforeFromSummary", params)
+    if not callback_info then return self:CheckForCallback("AfterFromSummary", params) end
+    if type(callback_info) ~= "table" then return end
+    summary = callback_info.summary
+    --
+
+    if not summary then self:CheckForCallback("AfterFromSummary", print("\tNo summary given")) end
     print("\tSummary - ")
     for k, v in pairs(summary) do
         print("\t\t", k, " - ", v)
@@ -191,12 +229,21 @@ function CDOTABaseAbility:FromSummary(summary)
             self:SetLevel(summary.level or 0)
         end
     end
+    return self:CheckForCallback("AfterFromSummary")
 end
 --------
 
 -------- Ability Removal Callbacks
 function CDOTABaseAbility:_BeforeRemoval(ignore_children)
     print("CDOTABaseAbility:_BeforeRemoval() - Real ability name - ", self:GetAbilityName())
+    -- Compatibility Callback Logic
+    local params = {ignore_children = ignore_children}
+    local callback_info = self:CheckForCallback("Before_BeforeRemoval", params)
+    if not callback_info then return self:CheckForCallback("After_BeforeRemoval", params) end
+    if type(callback_info) ~= "table" then return end
+    ignore_children = callback_info.ignore_children
+    --
+
     if self:IsPrecaching() then return print("\tDoing nothing because this is precaching finishing") end
     self:SetHidden(true)
     if self:IsMainAbility() then
@@ -260,9 +307,11 @@ end
 -------- Random Utility
 function CDOTABaseAbility:Refund()
     print("CDOTABaseAbility:Refund()")
+    self:CheckForCallback("BeforeRefund")
     if not self.caster or not self.caster.IsHero or not self.caster:IsHero() then return print("\tCaster is not a hero") end
     self.caster:SetAbilityPoints(self.caster:GetAbilityPoints() + self:GetLevel())
     self:SetLevel(0)
+    self:CheckForCallback("AfterRefund")
 end
 
 function CDOTABaseAbility:Refresh()
@@ -336,5 +385,17 @@ end
 function HasAbilityDraftUltScepterPreAbility(ability_name)
     return GetAbilityKV(ability_name, "AbilityDraftUltScepterPreAbility")
 end
+--------
+
+-------- Compatibility Callbacks
+--- Unless there is a good reason not to, please keep any functions being used in CDOTABaseAbility.Config.compatibility_callbacks inside this section
+function CDOTABaseAbility:CheckForCallback(callback_name)
+    print("CDOTABaseAbility:CheckForCallback()")
+    if CDOTABaseAbility.Config.compatibility_callbacks[callback_name] then
+        print("CDOTABaseAbility:",  callback_name, "()")
+        return CDOTABaseAbility.Config.compatibility_callbacks[callback_name](self)
+    end
+end
+
 --------
 

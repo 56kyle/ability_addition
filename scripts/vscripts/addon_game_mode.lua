@@ -71,37 +71,3 @@ function GameMode:OnThink()
 	end
 	return 1
 end
-
-function GameMode:InitAbilityLists()
-	local abilityListKV = LoadKeyValues("scripts/npc/npc_abilities_list.txt")
-	local all_ability_names = {}
-	local hero_ability_pools = {}
-	for hero_name, ability_table_or_name in pairs(abilityListKV) do
-		hero_ability_pools["npc_dota_hero_".. hero_name] = {}
-		if ability_table_or_name and type(ability_table_or_name) == "table" then
-			for key, value in pairs(ability_table_or_name) do
-				--Skill definition
-				if type(value) ~= "table" then
-					if not disabled_abilities[value] then
-						if not table.contains(all_ability_names, value)then
-							table.insert(all_ability_names, value)
-						end
-						table.insert(HeroBuilder.heroAbilityPool["npc_dota_hero_".. hero_name], value)
-						HeroBuilder.abilityHeroMap[value] = hero_name
-					else
-						print(value, "was disabled by disabled_abilities.kv")
-					end
-					--Bonus Skills
-				else
-					HeroBuilder.linkedAbilities[key]={}
-					for k,v in pairs(value) do
-						--Add bonus skills to the queue
-						table.insert(HeroBuilder.linkedAbilities[key],k)
-						table.insert(HeroBuilder.subsidiaryAbilitiesList,k)
-						HeroBuilder.linkedAbilitiesLevel[k] = tonumber(v)
-					end
-				end
-			end
-		end
-	end
-end

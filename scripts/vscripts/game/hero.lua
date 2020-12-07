@@ -10,7 +10,20 @@
 --------
 
 -------- Explanations
----- Compatibility Callbacks
+----- General Important Variables
+--- self.abilities - (ability_name = ability) - All abilities that are added through the Ability Methods in this library.
+---     Some exclusions are cosmetic abilities such as high_fives and hero talents.
+--- self.pending_abilities - (old_ability_name = old_ability) -  All abilities which are pending precache to finish.
+---     This could mean that it is a generic_hidden ability or even an entirely different ability that hasn't been
+---     relearned yet.
+--- self.pending_relearning - (old_ability_name = new_ability_name) - All abilities which attempted to be relearned
+---     while they were still precaching. This list will automcatically diminish with time since once an ability
+---     is done precaching it will check if it needs to be relearned or not.
+---
+----- Compatibility Callbacks
+--- Note: Idea for these callbacks came from BepInEx (A toolset for modding Unity games) and is (roughly) modeled after
+---     their Prefix Postfix structure.
+---
 --- Before -
 ---     If there is a "Before"..function_name function present in class_name.Config.compatibility_callbacks then
 --- the function will be called with the parameters that were passed into the original function in table format.
@@ -48,9 +61,14 @@ CDOTA_BaseNPC_Hero.Config = {
 -------- Hero Initialization, called within GameMode:OnNPCSpawned()
 function CDOTA_BaseNPC_Hero:Init()
     print("CDOTA_BaseNPC_Hero:Init()")
+    -- Compatibility Callback Logic
     if not self:CheckForCallback("BeforeInit") then return self:CheckForCallback("AfterInit", print("Init canceled by compatibility callback")) end
+    --
+
     self.abilities = {}
     self.pending_abilities = {}
+    self.pending_relearning = {}
+    self.precached_ability_names = {}
     self.should_have_scepter = self:HasScepter()
     self.all_allowed_ability_names = table.deepcopy(_G.all_ability_names)
 
@@ -62,6 +80,7 @@ function CDOTA_BaseNPC_Hero:Init()
     end
 
     for _, ability in pairs(self:GetNormalAbilities()) do
+        self.precached_ability_names[ability:GetAbilityName()] = true
         CDOTA_BaseNPC.RemoveAbilityByHandle(self, ability)
     end
 
@@ -96,6 +115,7 @@ function CDOTA_BaseNPC_Hero:AddAbility(ability_name, parent_ability_name, ignore
             main_abilities_count = main_abilities_count + 1
         end
     end
+    print("\tparent_ability_name = ", parent_ability_name)
     if main_abilities_count >= CDOTA_BaseNPC_Hero.Config.main_ability_limit and not parent_ability_name then return self:CheckForCallback("AfterAddAbility", print("\tHero has too many abilities")) end
     local placeholder = CDOTA_BaseNPC.AddAbility(self, "generic_hidden")
     if not placeholder then return self:CheckForCallback("AfterAddAbility", print("\tGeneric ability could not be added")) end
@@ -117,14 +137,24 @@ function CDOTA_BaseNPC_Hero:RelearnAbilityFor(original_ability_name, new_ability
     new_ability_name = callback_info.new_ability_name
     --
 
+    if self.pending_abilities[original_ability_name] then
+        self.pending_relearning[original_ability_name] = new_ability_name
+        return self:CheckForCallback("AfterRelearnAbilityFor", self.abilities[original_ability_name])
+    end
+    self.pending_relearning[original_ability_name] = nil
+
     if not original_ability_name or not new_ability_name then return self:CheckForCallback("AfterRelearnAbilityFor", print("\tMissing param")) end
     if not self.abilities[original_ability_name] then return self:CheckForCallback("AfterRelearnAbilityFor", print("\tOriginal ability not owned")) end
     if not table.contains(self.all_allowed_ability_names, new_ability_name) then return self:CheckForCallback("AfterRelearnAbilityFor", print("\tCan't relearn ", original_ability_name, " for ", new_ability_name, " because it is not an allowed ability")) end
 
     self.pending_abilities[new_ability_name] = original_ability_name
-    self:Precache(new_ability_name, function()
+    if self.precached_ability_names[new_ability_name] then
         self:OnReplacementAbilityPrecacheFinished(new_ability_name, original_ability_name)
-    end)
+    else
+        self:Precache(new_ability_name, function()
+            self:OnReplacementAbilityPrecacheFinished(new_ability_name, original_ability_name)
+        end)
+    end
     return self:CheckForCallback("AfterRelearnAbilityFor", self.abilities[original_ability_name])
 end
 
@@ -141,7 +171,6 @@ function CDOTA_BaseNPC_Hero:RemoveAbility(ability_name, ignore_children)
 
     print("\tRemoving - ", ability_name)
     -- Testing if the ability has more than one dependent abilities
-    if self:_DoesAbilityHaveMultipleDependencies(ability_name) then return self:CheckForCallback("AfterRemoveAbility", print("\tCan't remove ability - Too many dependent abilities")) end
     if ability_name ~= self.abilities[ability_name]:GetAbilityName() then return self:CheckForCallback("AfterRemoveAbility", print("\tAbility is precaching. Can not remove yet.")) end
 
     -- Testing if ability exists in the new structuring or if this is an exception
@@ -210,6 +239,7 @@ end
 function CDOTA_BaseNPC_Hero:Precache(ability_name, callback)
     print("CDOTA_BaseNPC_Hero:Precache()")
     PrecacheItemByNameAsync(ability_name, callback)
+    self.precached_ability_names[ability_name] = true
 end
 
 function CDOTA_BaseNPC_Hero:OnNewAbilityPrecacheFinished(ability_name, parent_ability_name, ignore_children)
@@ -230,8 +260,10 @@ function CDOTA_BaseNPC_Hero:OnNewAbilityPrecacheFinished(ability_name, parent_ab
         new_ability:Init(nil, parent_ability_name, ignore_children)
     else
         print("\tFailed to add ", ability_name)
-        CDOTA_BaseNPC.RemoveAbilityByHandle(self, self.abilities[ability_name])
-        self.abilities[ability_name] = nil
+        if self.abilities[ability_name] and self.abilities[ability_name]:GetAbilityName() == "generic_hidden" then
+            CDOTA_BaseNPC.RemoveAbilityByHandle(self, self.abilities[ability_name])
+            self.abilities[ability_name] = nil
+        end
     end
     self.pending_abilities[ability_name] = nil
     return self:CheckForCallback("AfterOnNewAbilityPrecacheFinished")
@@ -266,12 +298,12 @@ function CDOTA_BaseNPC_Hero:_DoesAbilityHaveMultipleDependencies(ability_name)
     print("CDOTA_BaseNPC_Hero:_DoesAbilityHaveMultipleDependencies()")
     local abilities_dependent_on_ability_name = 0
     for _, ability in pairs(self.abilities) do
-        if table.contains(ability.child_ability_name_list, ability_name) then
-            print("\tability.name = ", ability.name)
-            print("\tability:GetAbilityName() = ", ability:GetAbilityName())
-            _DeepPrintTable(ability.child_ability_name_list)
-            abilities_dependent_on_ability_name = abilities_dependent_on_ability_name + 1
-            print("\t", ability:GetAbilityName(), "has ", ability_name, " as a dependency; count = ", abilities_dependent_on_ability_name)
+        if ability then
+            print(_, " - ", ability:GetAbilityName(), "; count = ", abilities_dependent_on_ability_name)
+            if table.contains(ability.child_ability_name_list, ability_name) and ability:IsMainAbility() and _ == ability:GetAbilityName() then
+                abilities_dependent_on_ability_name = abilities_dependent_on_ability_name + 1
+                print("\t", ability:GetAbilityName(), "has ", ability_name, " as a dependency; count = ", abilities_dependent_on_ability_name)
+            end
         end
     end
     return abilities_dependent_on_ability_name > 1
@@ -279,7 +311,10 @@ end
 
 function CDOTA_BaseNPC_Hero:RefreshAbilities()
     print("CDOTA_BaseNPC_Hero:RefreshAbilities()")
+    -- Compatibility Callback Logic
     if not self:CheckForCallback("BeforeRefreshAbilities") then return print("CDOTA_BaseNPC_Hero:RefreshAbilities has been canceled by a compatibility callback") end
+    --
+
     for _, ability in pairs(self:GetAbilities()) do
         if ability and ability.Refresh then
             ability:Refresh()
@@ -292,10 +327,9 @@ end
 
 function CDOTA_BaseNPC_Hero:GetMainAbilities()
     print("CDOTA_BaseNPC_Hero:GetMainAbilities()")
-    -- Note, does not distinguish between pending_abilities, abilities that may be removed, etc.
     local main_abilities = {}
     for _, ability in pairs(self.abilities) do
-        if ability:IsMainAbility() then
+        if ability:IsMainAbility() and not self.pending_abilities[ability:GetAbilityName()] then
             print("\t", ability.name, " is a main ability")
             main_abilities[ability.name] = ability
         else
@@ -306,11 +340,69 @@ function CDOTA_BaseNPC_Hero:GetMainAbilities()
 end
 --------
 
+-------- Methods for interaction with UI
+-- Prompt and Callback pair
+function CDOTA_BaseNPC_Hero:PromptAbilityRemovalSelection()
+    print("CDOTA_BaseNPC_Hero:PromptAbilityRemovalSelection")
+    if not self:CheckForCallback("BeforePromptAbilityRemovalSelection") then return self:CheckForCallback("AfterPromptAbilityRemovalSelection") end
+    print("\tShowing Ability Removal Selection -")
+    _DeepPrintTable(self:GetMainAbilities())
+    return self:CheckForCallback("AfterPromptAbilityRemovalSelection")
+end
+
+function CDOTA_BaseNPC_Hero:OnAbilityRemovalSelection(ability_name)
+    print("CDOTA_BaseNPC_Hero:OnAbilityRemovalSelection")
+    -- Compatibility Callback Logic
+    local params = {ability_name = ability_name}
+    local callback_info = self:CheckForCallback("BeforeOnAbilityRemovalSelection", params)
+    if not callback_info then return self:CheckForCallback("AfterOnAbilityRemovalSelection", params) end
+    ability_name = callback_info.ability_name
+    --
+
+    self:PromptAbilityToLearnSelection(ability_name)
+    return self:CheckForCallback("AfterOnAbilityRemovalSelection")
+end
+--
+
+-- Prompt and Callback pair
+function CDOTA_BaseNPC_Hero:PromptAbilityToLearnSelection(old_ability_name)
+    print("CDOTA_BaseNPC_Hero:PromptAbilityToLearnSelection")
+    -- Compatibility Callback Logic
+    local params = {old_ability_name = old_ability_name}
+    local callback_info = self:CheckForCallback("BeforePromptAbilityToLearnSelection", params)
+    if not callback_info then return self:CheckForCallback("AfterPromptAbilityToLearnSelection", params) end
+    old_ability_name = callback_info.old_ability_name
+    --
+
+    _DeepPrintTable(self:GetPoolOfRandomAbilityNames())
+    return self:CheckForCallback("AfterPromptAbilityToLearnSelection")
+end
+
+function CDOTA_BaseNPC_Hero:OnAbilityToLearnSelection(old_ability_name, ability_name)
+    print("CDOTA_BaseNPC_Hero:OnAbilityToLearnSelection")
+    -- Compatibility Callback Logic
+    local params = {ability_name = ability_name, old_ability_name = old_ability_name}
+    local callback_info = self:CheckForCallback("BeforeOnAbilityToLearnSelection")
+    if not callback_info then return self:CheckForCallback("AfterOnAbilityToLearnSelection", params) end
+    ability_name = callback_info.ability_name
+    old_ability_name = callback_info.old_ability_name
+    --
+    self:RelearnAbilityFor(old_ability_name, ability_name)
+    return self:CheckForCallback("AfterOnAbilityToLearnSelection")
+end
+--
+--------
+
 -------- Utility Methods relating to rerolling abilities
 function CDOTA_BaseNPC_Hero:GetAllAllowedAbilityNames()
     print("CDOTA_BaseNPC_Hero:GetAllAllowedAbilityNames()")
+    -- Compatibility Callback Logic
+    if not self:CheckForCallback("BeforeGetAllAllowedAbilityNames") then return self:CheckForCallback("AfterGetAllAllowedAbilityNames") end
+    --
+
     self.all_allowed_ability_names = table.deepcopy(_G.all_ability_names)
     self:FilterAllowedAbilityNames()
+    return self:CheckForCallback("AfterGetAllAllowedAbilityNames")
 end
 
 function CDOTA_BaseNPC_Hero:FilterAllowedAbilityNames()
@@ -378,7 +470,10 @@ end
 -------- Scepter Callbacks
 function CDOTA_BaseNPC_Hero:OnScepterChanged()
     print("CDOTA_BaseNPC_Hero:OnScepterChanged")
+    -- Compatibility Callback Logic
     if not self:CheckForCallback("BeforeOnScepterChanged") then return print("CDOTA_BaseNPC_Hero:OnScepterGained has been canceled by a compatibility callback") end
+    --
+
     if self:HasScepter() then
         self:OnScepterGained()
     else
@@ -389,7 +484,10 @@ end
 
 function CDOTA_BaseNPC_Hero:OnScepterGained()
     print("CDOTA_BaseNPC_Hero:OnScepterGained")
+    -- Compatibility Callback Logic
     if not self:CheckForCallback("BeforeOnScepterGained") then return print("CDOTA_BaseNPC_Hero:OnScepterGained has been canceled by a compatibility callback") end
+    --
+
     self.should_have_scepter = true
     local scepter_ability_names_added = {}
     for _, ability in pairs(self.abilities) do
@@ -405,7 +503,10 @@ end
 
 function CDOTA_BaseNPC_Hero:OnScepterLost()
     print("CDOTA_BaseNPC_Hero:OnScepterLost")
+    -- Compatibility Callback Logic
     if not self:CheckForCallback("BeforeOnScepterLost") then return print("CDOTA_BaseNPC_Hero:OnScepterLost has been canceled by a compatibility_callback") end
+    --
+
     self.should_have_scepter = false
     for _, ability in pairs(self.abilities) do
         ability:_RemoveScepterChildren()
@@ -456,6 +557,10 @@ function CDOTA_BaseNPC_Hero:FilterPossiblyOwnedAbilities()
     for ability_name, _ in pairs(self.pending_abilities) do
         table.remove_item(self.all_allowed_ability_names, ability_name)
     end
+    for pending_ability_name, new_ability_name in pairs(self.pending_relearning) do
+        table.remove_item(self.all_allowed_ability_names, pending_ability_name)
+        table.remove_item(self.all_allowed_ability_names, new_ability_name)
+    end
 end
 
 function CDOTA_BaseNPC_Hero:FilterSummonAbilities()
@@ -477,8 +582,10 @@ function CDOTA_BaseNPC_Hero:CheckForCallback(callback_name, passed_info)
         return CDOTA_BaseNPC_Hero.Config.compatibility_callbacks[callback_name](self, passed_info)
     else
         if string.starts_with(callback_name, "Before") then
+            print(callback_name, " - ", passed_info or true)
             return passed_info or true
         elseif string.starts_with(callback_name, "After") then
+            print(callback_name, " - ", passed_info)
             return passed_info
         else
             return print("ERROR - CDOTA_BaseNPC_Hero:CheckForCallback was given a callback_name not starting with 'Before' or 'After'. The callback_name is - ", callback_name)

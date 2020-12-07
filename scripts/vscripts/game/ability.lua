@@ -68,7 +68,7 @@ function CDOTABaseAbility:Init(desired_name, parent_ability_name, ignore_childre
     local params = {desired_name = desired_name, parent_ability_name = parent_ability_name, ignore_children = ignore_children}
     local callback_info = self:CheckForCallback("BeforeInit", params)
     if not callback_info then return self:CheckForCallback("AfterInit", params) end
-    if type(callback_info) ~= "table" then return end
+    if type(callback_info) ~= "table" then return print("Ability not initialized, callback_info = ", callback_info) end
     desired_name = callback_info.desired_name
     parent_ability_name = callback_info.parent_ability_name
     ignore_children = callback_info.ignore_children
@@ -89,13 +89,14 @@ function CDOTABaseAbility:Init(desired_name, parent_ability_name, ignore_childre
 
     -- Inherits properties of previous ability based on config values, or just assigns itself
     if self.caster.abilities[desired_name] then
+        -- If an ability is already there, then this is precaching finishing.
         if self.caster.abilities[desired_name]:GetAbilityName() ~= "generic_hidden" then
             self:_InitAbilityDependents(desired_name, ignore_children)
         end
         self:_ReplaceAbility(desired_name)
     else
+        -- Otherwise, this is a new ability being added
         self.caster.abilities[desired_name] = self
-        self.caster.pending_abilities[desired_name] = self.name
         self:_InitAbilityDependents(desired_name, ignore_children)
     end
     return self:CheckForCallback("AfterInit")
@@ -146,8 +147,12 @@ function CDOTABaseAbility:_ReplaceAbility(desired_name)
     self.caster:UnHideAbilityToSlot(self:GetAbilityName(), self.caster.abilities[desired_name]:GetAbilityName())
     self.caster:RemoveAbilityByHandle(self.caster.abilities[desired_name])
     self.caster.abilities[desired_name] = self
+    self.caster.pending_abilities[desired_name] = nil
     self.caster.abilities[desired_name]:FromSummary(summary)
     self.caster:RefreshAbilities()
+    if self.caster.pending_relearning[desired_name] then
+        self.caster:RelearnAbilityFor(desired_name, self.caster.pending_relearning[desired_name])
+    end
 end
 --------
 
@@ -157,12 +162,16 @@ end
 --- or to the old ability if the ability somehow fails to precache.
 function CDOTABaseAbility:ToSummary()
     print("CDOTABaseAbility:ToSummary() - Taken from real name - "..self:GetAbilityName())
+    -- Compatibility Callback Logic
     if not self:CheckForCallback("BeforeToSummary") then return self:CheckForCallback("AfterToSummary", print("CDOTABaseAbility:ToSummary canceled by ")) end
+    --
+
     local summary = {}
     summary.index = self:GetAbilityIndex()
     if summary.index < 2 then
         summary.index = 2
     end
+    summary.desired_name = self.name
     summary.cooldown = self:GetCooldownTimeRemaining()
     summary.hidden = self:IsHidden() and self:GetAbilityName() ~= "generic_hidden"
     summary.stealable = self:IsStealable()
@@ -173,7 +182,7 @@ function CDOTABaseAbility:ToSummary()
         summary.parent_ability_name = self.parent_ability_name
         summary.child_ability_name_list = self.child_ability_name_list
         summary.scepter_ability_name_list = self.scepter_ability_name_list
-        if GetAbilityKV(self.name, "MaxLevel") == 1 and GetAbilityKV(self.name, "IsGrantedByScepter") == 1 then
+        if GetAbilityKV(self.name, "MaxLevel") == 1 then
             summary.level = 1
         end
     end
@@ -216,9 +225,21 @@ function CDOTABaseAbility:FromSummary(summary)
     self:SetStealable(summary.stealable)
     self:SetStolen(summary.stolen)
     self:SetActivated(summary.activated)
-    self.parent_ability_name = summary.parent_ability_name or self.parent_ability_name
-    self.child_ability_name_list = summary.child_ability_name_list or self.child_ability_name_list
-    self.scepter_ability_name_list = summary.scepter_ability_name_list or self.scepter_ability_name_list
+    if summary.desired_name == self:GetAbilityName() then
+        print("\tself.parent_ability_namy = ", summary.parent_ability_name, " or ", self.parent_ability_name)
+        self.parent_ability_name = summary.parent_ability_name or self.parent_ability_name
+        print("\tself.chiled_ability_name_list = ")
+        _DeepPrintTable(summary.child_ability_name_list or {})
+        print("\tor")
+        _DeepPrintTable(self.child_ability_name_list or {})
+
+        self.child_ability_name_list = summary.child_ability_name_list or self.child_ability_name_list
+        print("\tself.scepter_ability_name_list = ")
+        _DeepPrintTable(summary.scepter_ability_name_list or {})
+        print("\tor")
+        _DeepPrintTable(self.scepter_ability_name_list or {})
+        self.scepter_ability_name_list = summary.scepter_ability_name_list or self.scepter_ability_name_list
+    end
     if self:IsScepterAbility() then
         print("\tIs a scepter ability")
         if self.caster:HasScepter() then
@@ -257,6 +278,7 @@ function CDOTABaseAbility:_BeforeRemoval(ignore_children)
         print("\t---- Ignoring Children! ----")
     end
     self.caster.abilities[self.name] = nil
+    self.caster.pending_abilities[self.name] = nil
 end
 
 function CDOTABaseAbility:_RemoveChildren()
@@ -266,8 +288,13 @@ function CDOTABaseAbility:_RemoveChildren()
         print("\t", _, " - ", child_ability_name)
         local keep_child = false
         for other_ability_name, ability in pairs(self.caster.abilities) do
-            if ability ~= self then
+            if ability.name ~= self.name then
                 keep_child = table.contains(ability.child_ability_name_list, child_ability_name) or keep_child
+            end
+        end
+        for new_ability_name, old_ability in pairs(self.caster.pending_abilities) do
+            if old_ability.name ~= self.name then
+                keep_child = table.contains(old_ability.child_ability_name_list or {}, child_ability_name) or keep_child
             end
         end
         if not keep_child then
@@ -275,7 +302,9 @@ function CDOTABaseAbility:_RemoveChildren()
                 self.caster:RemoveAbilityByHandle(self.caster.abilities[child_ability_name])
             else
                 self.caster.abilities[child_ability_name]:SetHidden(true)
-                CDOTA_BaseNPC.RemoveAbilityByHandle(self.caster.abilities[child_ability_name])
+                CDOTA_BaseNPC.RemoveAbilityByHandle(self.caster, self.caster.abilities[child_ability_name])
+                self.caster.abilities[child_ability_name] = nil
+                self.caster.pending_abilities[child_ability_name] = nil
             end
         end
     end
@@ -292,6 +321,11 @@ function CDOTABaseAbility:_RemoveScepterChildren()
                 keep_child = table.contains(ability.scepter_ability_name_list, scepter_ability_name) or keep_child
             end
         end
+        for new_ability_name, old_ability in pairs(self.caster.pending_abilities) do
+            if old_ability.name ~= self.name then
+                keep_child = table.contains(old_ability.scepter_ability_name_list or {}, scepter_ability_name) or keep_child
+            end
+        end
         if not keep_child then
             if not _G.unremovable_abilities[scepter_ability_name] then
                 self.caster:RemoveAbilityByHandle(self.caster.abilities[scepter_ability_name])
@@ -299,6 +333,7 @@ function CDOTABaseAbility:_RemoveScepterChildren()
                 self.caster.abilities[scepter_ability_name]:SetHidden(true)
                 CDOTA_BaseNPC.RemoveAbilityByHandle(self.caster, self.caster.abilities[scepter_ability_name])
                 self.caster.abilities[scepter_ability_name] = nil
+                self.caster.pending_abilities[scepter_ability_name] = nil
             end
         end
     end
@@ -307,11 +342,11 @@ end
 -------- Random Utility
 function CDOTABaseAbility:Refund()
     print("CDOTABaseAbility:Refund()")
-    self:CheckForCallback("BeforeRefund")
+    if not self:CheckForCallback("BeforeRefund") then return self:CheckForCallback("AfterRefund") end
     if not self.caster or not self.caster.IsHero or not self.caster:IsHero() then return print("\tCaster is not a hero") end
     self.caster:SetAbilityPoints(self.caster:GetAbilityPoints() + self:GetLevel())
     self:SetLevel(0)
-    self:CheckForCallback("AfterRefund")
+    return self:CheckForCallback("AfterRefund")
 end
 
 function CDOTABaseAbility:Refresh()
@@ -333,7 +368,7 @@ end
 
 function CDOTABaseAbility:IsMainAbility()
     print("CDOTABaseAbility:IsMainAbility()")
-    return not self.parent_ability_name and not self.cosmetic
+    return ClassifyAbility(self.name or self:GetAbilityName()).is_main_ability
 end
 
 function CDOTABaseAbility:IsLinkedAbility()
@@ -348,7 +383,7 @@ end
 
 function CDOTABaseAbility:IsPrecaching()
     print("CDOTABaseAbility:IsPrecaching()")
-    return self:GetAbilityName() == "generic_hidden"
+    return self:GetAbilityName() == "generic_hidden" or self:GetAbilityName() ~= self.name
 end
 --------
 
@@ -389,11 +424,21 @@ end
 
 -------- Compatibility Callbacks
 --- Unless there is a good reason not to, please keep any functions being used in CDOTABaseAbility.Config.compatibility_callbacks inside this section
-function CDOTABaseAbility:CheckForCallback(callback_name)
-    print("CDOTABaseAbility:CheckForCallback()")
+function CDOTABaseAbility:CheckForCallback(callback_name, passed_info)
+    -- print("CDOTABaseAbility:CheckForCallback()")
     if CDOTABaseAbility.Config.compatibility_callbacks[callback_name] then
-        print("CDOTABaseAbility:",  callback_name, "()")
-        return CDOTABaseAbility.Config.compatibility_callbacks[callback_name](self)
+        -- print("CDOTABaseAbility:",  callback_name, "()")
+        return CDOTABaseAbility.Config.compatibility_callbacks[callback_name](self, passed_info)
+    else
+        if string.starts_with(callback_name, "Before") then
+            -- print(callback_name, " - ", passed_info or true)
+            return passed_info or true
+        elseif string.starts_with(callback_name, "After") then
+            -- print(callback_name, " - ", passed_info)
+            return passed_info
+        else
+            return print("ERROR - CDOTABaseAbility:CheckForCallback was given a callback_name not starting with 'Before' or 'After'. The callback_name is - ", callback_name)
+        end
     end
 end
 

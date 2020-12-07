@@ -9,7 +9,7 @@ ListenToGameEvent("player_chat", function(keys)
     if not hero then return end
 
     local player_id = hero:GetPlayerID()
-    local text = string.trim(string.lower(keys.text))
+    local text = string.trim(keys.text)
     if text:sub(0, 1) ~= "-" then return end
 
     text = text:sub(2)
@@ -104,9 +104,11 @@ ListenToGameEvent("player_chat", function(keys)
     end
 
     if command == "la" then
+        print("From - hero:GetAbilities()")
         for i, ability in pairs(hero:GetAbilities()) do
             print(tostring(i).." - "..ability:GetAbilityName())
         end
+        print("From - hero.abilities")
         for ability_name, ability in pairs(hero.abilities) do
             print(ability_name, " - ")
             if type(ability) == "table" then
@@ -132,6 +134,17 @@ ListenToGameEvent("player_chat", function(keys)
     if command == "describe" or command == "des" then
         if keywords[1] and hero.abilities[keywords[1]] then
             _DeepPrintTable(hero.abilities[keywords[1]])
+        end
+    end
+
+    if command == "show_from_self" then
+        print("Showing self.", keywords[1])
+        if hero[keywords[1]] then
+            if type(hero[keywords[1]]) == "table" then
+                _DeepPrintTable(hero[keywords[1]])
+            else
+                print(hero[keywords[1]])
+            end
         end
     end
 

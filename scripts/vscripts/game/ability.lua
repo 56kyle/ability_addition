@@ -198,7 +198,12 @@ function CDOTABaseAbility:FromSummary(summary)
     for k, v in pairs(summary) do
         print("\t\t", k, " - ", v)
     end
-    self:SetAbilityIndex(summary.index)
+    local index = summary.index
+    while not self.caster:GetAbilityByIndex(index) and index ~= 0 do
+        index = index - 1
+    end
+    self:SetAbilityIndex(index)
+
     if self:HasBehavior(DOTA_ABILITY_BEHAVIOR_HIDDEN) then
         if GetAbilityKV(self.name).IsGrantedByScepter then
             self:SetHidden(not self.caster.should_have_scepter)

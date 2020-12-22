@@ -53,6 +53,7 @@ function CDOTA_BaseNPC_Hero:Init()
     self.precached_ability_names = {}
     self.should_have_scepter = self:HasScepter()
     self.all_allowed_ability_names = table.deepcopy(_G.all_ability_names)
+    self.hotkeys = {}
 
     -- Removes all generic_hidden since we can't have repeat keys in self.abilities
     for _, ability in pairs(self:GetAbilities()) do
@@ -67,8 +68,8 @@ function CDOTA_BaseNPC_Hero:Init()
     end
 
     -- Must have two abilities for UI to display
-    CDOTA_BaseNPC.AddAbility(self, "generic_hidden"):SetAbilityIndex(4)
-    CDOTA_BaseNPC.AddAbility(self, "generic_hidden"):SetAbilityIndex(5)
+    CDOTA_BaseNPC.AddAbility(self, "generic_hidden"):SetAbilityIndex(0)
+    CDOTA_BaseNPC.AddAbility(self, "generic_hidden"):SetAbilityIndex(1)
     return self:CheckForCallback("AfterInit")
 end
 --------

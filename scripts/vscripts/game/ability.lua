@@ -10,7 +10,7 @@
 CDOTABaseAbility = CDOTABaseAbility or class({})
 
 _G.ability_exclusion = LoadKeyValues("scripts/kv/excluded_ability_combinations.kv")
-_G.ability_personal = LoadKeyValues("scripts/kv/ability_types/personal.kv")
+_G.hero_specific_abilities = LoadKeyValues("scripts/kv/ability_types/hero_specific.kv")
 _G.unremovable_abilities = LoadKeyValues("scripts/kv/ability_types/unremovable.kv")
 _G.summon_abilities = LoadKeyValues("scripts/kv/ability_types/summon.kv")
 _G.disabled_abilities = LoadKeyValues("scripts/kv/ability_types/disabled.kv")
@@ -54,12 +54,6 @@ if not _G.all_ability_names then
     end
 end
 
-CDOTABaseAbility.Config = {
-    compatibility_callbacks = {
-        -- event_name = callback function
-        -- Ex: OnInit = CDOTABaseAbility.Refresh
-    }
-}
 
 -------- Ability Initialization
 function CDOTABaseAbility:Init(desired_name, parent_ability_name, ignore_children)
@@ -117,7 +111,7 @@ function CDOTABaseAbility:_InitAbilityDependents(desired_name, ignore_children)
         for _, linked_ability_name in pairs(_G.linked_abilities[desired_name]) do
             table.insert(self.child_ability_name_list, linked_ability_name)
             if not self.caster.abilities[linked_ability_name] then
-                self.caster:AddAbility(linked_ability_name, desired_name)
+                self.caster:AddAbilityToHero(linked_ability_name, desired_name)
             end
         end
     end
@@ -131,7 +125,7 @@ function CDOTABaseAbility:_InitAbilityDependents(desired_name, ignore_children)
         for _, scepter_ability_name in pairs(self.scepter_ability_name_list) do
             if not self.caster.abilities[scepter_ability_name] then
                 print("\t\tAdding scepter_ability_name - ", scepter_ability_name)
-                self.caster:AddAbility(scepter_ability_name, self.name)
+                self.caster:AddAbilityToHero(scepter_ability_name, self.name)
             else
                 print("\t\tNot adding scepter_ability_name since it is already obtained - ", scepter_ability_name)
             end
@@ -145,11 +139,11 @@ function CDOTABaseAbility:_ReplaceAbility(desired_name)
     -- Used for both replacing generic_hidden and normal abilities
     local summary = self.caster.abilities[desired_name]:ToSummary()
     self.caster:UnHideAbilityToSlot(self:GetAbilityName(), self.caster.abilities[desired_name]:GetAbilityName())
-    self.caster:RemoveAbilityByHandle(self.caster.abilities[desired_name])
+    self:MarkAbilityButtonDirty()
+    self.caster:RemoveAbilityByHandleFromHero(self.caster.abilities[desired_name])
     self.caster.abilities[desired_name] = self
     self.caster.pending_abilities[desired_name] = nil
     self.caster.abilities[desired_name]:FromSummary(summary)
-    self.caster:RefreshAbilities()
     if self.caster.pending_relearning[desired_name] then
         self.caster:RelearnAbilityFor(desired_name, self.caster.pending_relearning[desired_name])
     end
@@ -157,7 +151,7 @@ end
 --------
 
 -------- Ability Summarization - One of the more important parts here.
---- Allows for returning a placeholder ability in CDOTA_BaseNPC_Hero:AddAbility() that will
+--- Allows for returning a placeholder ability in CDOTA_BaseNPC_Hero:AddAbilityToHero() that will
 --- have it's attributes passed to the new ability when precaching is finished,
 --- or to the old ability if the ability somehow fails to precache.
 function CDOTABaseAbility:ToSummary()
@@ -226,18 +220,8 @@ function CDOTABaseAbility:FromSummary(summary)
     self:SetStolen(summary.stolen)
     self:SetActivated(summary.activated)
     if summary.desired_name == self:GetAbilityName() then
-        print("\tself.parent_ability_namy = ", summary.parent_ability_name, " or ", self.parent_ability_name)
         self.parent_ability_name = summary.parent_ability_name or self.parent_ability_name
-        print("\tself.chiled_ability_name_list = ")
-        _DeepPrintTable(summary.child_ability_name_list or {})
-        print("\tor")
-        _DeepPrintTable(self.child_ability_name_list or {})
-
         self.child_ability_name_list = summary.child_ability_name_list or self.child_ability_name_list
-        print("\tself.scepter_ability_name_list = ")
-        _DeepPrintTable(summary.scepter_ability_name_list or {})
-        print("\tor")
-        _DeepPrintTable(self.scepter_ability_name_list or {})
         self.scepter_ability_name_list = summary.scepter_ability_name_list or self.scepter_ability_name_list
     end
     if self:IsScepterAbility() then
@@ -250,6 +234,7 @@ function CDOTABaseAbility:FromSummary(summary)
             self:SetLevel(summary.level or 0)
         end
     end
+    self:MarkAbilityButtonDirty()
     return self:CheckForCallback("AfterFromSummary")
 end
 --------
@@ -299,7 +284,7 @@ function CDOTABaseAbility:_RemoveChildren()
         end
         if not keep_child then
             if not _G.unremovable_abilities[child_ability_name] then
-                self.caster:RemoveAbilityByHandle(self.caster.abilities[child_ability_name])
+                self.caster:RemoveAbilityByHandleFromHero(self.caster.abilities[child_ability_name])
             else
                 self.caster.abilities[child_ability_name]:SetHidden(true)
                 CDOTA_BaseNPC.RemoveAbilityByHandle(self.caster, self.caster.abilities[child_ability_name])
@@ -328,7 +313,7 @@ function CDOTABaseAbility:_RemoveScepterChildren()
         end
         if not keep_child then
             if not _G.unremovable_abilities[scepter_ability_name] then
-                self.caster:RemoveAbilityByHandle(self.caster.abilities[scepter_ability_name])
+                self.caster:RemoveAbilityByHandleFromHero(self.caster.abilities[scepter_ability_name])
             else
                 self.caster.abilities[scepter_ability_name]:SetHidden(true)
                 CDOTA_BaseNPC.RemoveAbilityByHandle(self.caster, self.caster.abilities[scepter_ability_name])
@@ -347,11 +332,6 @@ function CDOTABaseAbility:Refund()
     self.caster:SetAbilityPoints(self.caster:GetAbilityPoints() + self:GetLevel())
     self:SetLevel(0)
     return self:CheckForCallback("AfterRefund")
-end
-
-function CDOTABaseAbility:Refresh()
-    -- Just a less awful name for this method
-    self:MarkAbilityButtonDirty()
 end
 
 function CDOTABaseAbility:HasBehavior(behavior)
@@ -444,3 +424,11 @@ end
 
 --------
 
+-------- Default Config
+CDOTABaseAbility.Config = {
+    compatibility_callbacks = {
+        -- event_name = callback function
+        -- Ex: OnInit = CDOTABaseAbility.Refresh
+    }
+}
+--------

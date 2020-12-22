@@ -23,7 +23,7 @@ ListenToGameEvent("player_chat", function(keys)
 
     if command == "add_ability" or command == "aa" then
         local ability_name = keywords[1] or table.random(_G.all_ability_names)
-        hero:AddAbility(ability_name)
+        hero:AddAbilityToHero(ability_name)
     end
 
     if command == "force_add" then
@@ -50,15 +50,19 @@ ListenToGameEvent("player_chat", function(keys)
 
     if command == "remove_ability" or command == "ra" then
         if keywords[1] and hero.abilities[keywords[1]] then
-            hero:RemoveAbility(keywords[1])
+            hero:RemoveAbilityFromHero(keywords[1])
         else
             if keywords[1] then
                 print("Can't remove ability")
             else
                 local random_ability = table.random_with_condition(hero.abilities, function(t, k, ability) return ability:IsMainAbility() end)
-                hero:RemoveAbilityByHandle(random_ability, nil)
+                hero:RemoveAbilityByHandleFromHero(random_ability, nil)
             end
         end
+    end
+
+    if command == "swap_ind" then
+        hero:SwapIndexes(tonumber(keywords[1]), tonumber(keywords[2]))
     end
 
     if command == "list_heroes" or command == "lh" then
@@ -71,6 +75,10 @@ ListenToGameEvent("player_chat", function(keys)
         hero:AddItemByName("item_ultimate_scepter")
     end
 
+    if command == "shard" then
+        hero:AddItemByName("item_ultimate_scepter_shard")
+    end
+
     if command == "trade_for" or command == "tf" then
         local ability_name_one = keywords[1]
         local ability_name_two = keywords[2]
@@ -81,7 +89,9 @@ ListenToGameEvent("player_chat", function(keys)
     if command == "swap" then
         local ability_one = table.random(hero.abilities).name
         local ability_two = table.random(hero.abilities).name
+        print("swapping (", ability_one, ", ", ability_two, ")")
         hero:SwapAbilities(ability_one, ability_two, true, true)
+        hero:CalculateStatBonus(false)
     end
 
     if command == "re_all" then

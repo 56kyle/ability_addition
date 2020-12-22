@@ -73,7 +73,7 @@ function Console:AddAbility()
     if not hero then return print("hero is nil") end
     print(hero:GetUnitName())
     local ability_name = Convars:GetStr("ability")
-    hero:AddAbility(ability_name)
+    hero:AddAbilityToHero(ability_name)
 end
 
 function Console:RemoveAbility()
@@ -83,7 +83,7 @@ function Console:RemoveAbility()
     if not hero then return print("hero is nil") end
     print(hero:GetUnitName())
     local ability_name = Convars:GetStr("ability")
-    hero:RemoveAbility(ability_name)
+    hero:RemoveAbilityFromHero(ability_name)
 end
 
 function Console:PointFunctionAtConvar()

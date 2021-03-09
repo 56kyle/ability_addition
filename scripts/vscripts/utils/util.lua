@@ -26,13 +26,11 @@ function DisplayError(playerId, message)
 	end
 end
 
-
 function string.split(inputstr, sep)
-	if sep == nil then sep = "%s" end
-	local t={} ; i=1
+	sep = sep or "%s"
+	local t = {}
 	for str in string.gmatch(inputstr, "([^"..sep.."]+)") do
-		t[i] = str
-		i = i + 1
+		table.insert(t, str)
 	end
 	return t
 end
